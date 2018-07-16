@@ -9,7 +9,11 @@ foreach( filename ${LIBCUSHLS_SOURCES} )
     message(${filename})
 endforeach()
 
-set(libname libcushls)
+if( MSVC )
+    set(libname libcushls)
+else()
+    set(libname cushls)
+endif()
 
 add_definitions( -DGST_USE_UNSTABLE_API -DHAVE_OPENSSL  )
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
