@@ -21,7 +21,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/gst-libs)
 add_library(${libname} SHARED ${LIBCUSHLS_SOURCES})
 target_link_libraries(${libname} ${GST_MODULES_LIBRARIES} )
 target_link_libraries(${libname} ${OPENSSL_MODULES_LIBRARIES} )
-
+target_link_libraries(${libname} gstadaptivedemux-1.0 )
 
 set(instal_prefix ${CMAKE_HOME_DIRECTORY}/bin)
 if( MSVC )
@@ -34,7 +34,11 @@ if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL AMD64 OR ${CMAKE_SYSTEM_PROCESSOR} STREQUA
 else()
 	set(arch x86)
 endif()
-set(instal_dir ${instal_prefix}/${plat}/${arch})
+if( MSVC )
+    set(instal_dir ${instal_prefix}/${plat}/${arch})
+else()
+    set(instal_dir $ENV{GST_PLUGIN_PATH_1_0})
+endif()
 install(TARGETS ${libname} RUNTIME DESTINATION ${instal_dir}
                            LIBRARY DESTINATION ${instal_dir})
 
