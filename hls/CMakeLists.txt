@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(libcushls)
 
-file(GLOB_RECURSE LIBCUSHLS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.[ch]
-     ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
+file(GLOB_RECURSE LIBCUSHLS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/lib/*.[ch]
+     ${CMAKE_CURRENT_SOURCE_DIR}/lib/*.cc)
 conan_project_group(LIBCUSHLS_SOURCES ${CMAKE_CURRENT_SOURCE_DIR})
 
 foreach( filename ${LIBCUSHLS_SOURCES} )
