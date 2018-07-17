@@ -34,6 +34,12 @@ G_BEGIN_DECLS
 typedef struct _GstHlsSink2 GstHlsSink2;
 typedef struct _GstHlsSink2Class GstHlsSink2Class;
 
+typedef enum
+{
+  MODE_DISK = 0,
+  MODE_MEMORY = 1,
+} GstHlsSink2CacheMode;
+
 struct _GstHlsSink2
 {
   GstBin bin;
@@ -47,6 +53,7 @@ struct _GstHlsSink2
   guint playlist_length;
   gint max_files;
   gint target_duration;
+  GstHlsSink2CacheMode cache_mode;
 
   GstM3U8Playlist *playlist;
   guint index;
@@ -63,6 +70,8 @@ struct _GstHlsSink2Class
 
 GType gst_hls_sink2_get_type (void);
 gboolean gst_hls_sink2_plugin_init (GstPlugin * plugin);
+
+
 
 G_END_DECLS
 

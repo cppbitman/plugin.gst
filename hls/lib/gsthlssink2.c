@@ -50,8 +50,18 @@ GST_DEBUG_CATEGORY_STATIC (gst_hls_sink2_debug);
 #define DEFAULT_MAX_FILES 10
 #define DEFAULT_TARGET_DURATION 15
 #define DEFAULT_PLAYLIST_LENGTH 5
+#define DEFAULT_MODE MODE_DISK
 
 #define GST_M3U8_PLAYLIST_VERSION 3
+
+enum
+{
+  SIGNAL_0,
+  ON_M3U8_PLAYLIST_SIGNAL,
+  LAST_SIGNAL,
+};
+
+static guint gst_hls_sink2_signals[LAST_SIGNAL] = { 0 };
 
 enum
 {
@@ -61,7 +71,8 @@ enum
   PROP_PLAYLIST_ROOT,
   PROP_MAX_FILES,
   PROP_TARGET_DURATION,
-  PROP_PLAYLIST_LENGTH
+  PROP_PLAYLIST_LENGTH,
+  PROP_CACHE_MODE
 };
 
 static GstStaticPadTemplate video_template = GST_STATIC_PAD_TEMPLATE ("video",
@@ -76,6 +87,9 @@ static GstStaticPadTemplate audio_template = GST_STATIC_PAD_TEMPLATE ("audio",
 #define gst_hls_sink2_parent_class parent_class
 G_DEFINE_TYPE (GstHlsSink2, gst_hls_sink2, GST_TYPE_BIN);
 
+#define GST_HLS_SINK2_CACHE_MODE (gst_hls_sink2_cache_mode_get_type ())
+
+
 static void gst_hls_sink2_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * spec);
 static void gst_hls_sink2_get_property (GObject * object, guint prop_id,
@@ -87,6 +101,25 @@ gst_hls_sink2_change_state (GstElement * element, GstStateChange trans);
 static GstPad *gst_hls_sink2_request_new_pad (GstElement * element,
     GstPadTemplate * templ, const gchar * name, const GstCaps * caps);
 static void gst_hls_sink2_release_pad (GstElement * element, GstPad * pad);
+
+
+static GType
+gst_hls_sink2_cache_mode_get_type (void)
+{
+  static GType gtype = 0;
+
+  if (gtype == 0) {
+    static const GEnumValue values[] = {
+      { MODE_DISK, "cache m3u8 and segments on disk (default)", "disk"},
+      { MODE_MEMORY, "cache m3u8 and segments on memory", "memory"},
+      { 0, NULL, NULL}
+    };
+
+    gtype = g_enum_register_static ("GstHlsSink2CacheMode", values);
+  }
+  return gtype;
+}
+
 
 static void
 gst_hls_sink2_dispose (GObject * object)
@@ -176,6 +209,15 @@ gst_hls_sink2_class_init (GstHlsSink2Class * klass)
           "the playlist will be infinite.",
           0, G_MAXUINT, DEFAULT_PLAYLIST_LENGTH,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject_class, PROP_CACHE_MODE,
+      g_param_spec_enum ("cache-mode", "Cache Mode",
+          "Cache mode of m3u8 playlist content and segments,on disk or memory",
+          GST_HLS_SINK2_CACHE_MODE, DEFAULT_MODE, 
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  gst_hls_sink2_signals[ON_M3U8_PLAYLIST_SIGNAL] =
+      g_signal_new_class_handler("on-m3u8-playlist", G_TYPE_FROM_CLASS(klass),
+      G_SIGNAL_RUN_LAST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING);
 }
 
 static void
@@ -189,6 +231,7 @@ gst_hls_sink2_init (GstHlsSink2 * sink)
   sink->playlist_length = DEFAULT_PLAYLIST_LENGTH;
   sink->max_files = DEFAULT_MAX_FILES;
   sink->target_duration = DEFAULT_TARGET_DURATION;
+  sink->cache_mode = DEFAULT_MODE;
   g_queue_init (&sink->old_locations);
 
   sink->splitmuxsink = gst_element_factory_make ("splitmuxsink", NULL);
@@ -211,7 +254,7 @@ gst_hls_sink2_reset (GstHlsSink2 * sink)
 
   if (sink->playlist)
     gst_m3u8_playlist_free (sink->playlist);
-  sink->playlist =
+    sink->playlist =
       gst_m3u8_playlist_new (GST_M3U8_PLAYLIST_VERSION, sink->playlist_length,
       FALSE);
 
@@ -226,13 +269,25 @@ gst_hls_sink2_write_playlist (GstHlsSink2 * sink)
   GError *error = NULL;
 
   playlist_content = gst_m3u8_playlist_render (sink->playlist);
-  if (!g_file_set_contents (sink->playlist_location,
-          playlist_content, -1, &error)) {
-    GST_ERROR ("Failed to write playlist: %s", error->message);
-    GST_ELEMENT_ERROR (sink, RESOURCE, OPEN_WRITE,
-        (("Failed to write playlist '%s'."), error->message), (NULL));
-    g_error_free (error);
-    error = NULL;
+  if( sink->cache_mode == MODE_DISK )
+  {
+    if (!g_file_set_contents (sink->playlist_location,
+      playlist_content, -1, &error)) {
+        GST_ERROR ("Failed to write playlist: %s", error->message);
+        GST_ELEMENT_ERROR (sink, RESOURCE, OPEN_WRITE,
+          (("Failed to write playlist '%s'."), error->message), (NULL));
+        g_error_free (error);
+        error = NULL;
+    }
+  }
+  else if( sink->cache_mode == MODE_MEMORY )
+  {
+    g_signal_emit(sink, gst_hls_sink2_signals[ON_M3U8_PLAYLIST_SIGNAL],
+      0, playlist_content);
+  }
+  else
+  {
+    GST_ERROR ("invalide cache mode set for m3u8 and segments");
   }
   g_free (playlist_content);
 
@@ -432,6 +487,9 @@ gst_hls_sink2_set_property (GObject * object, guint prop_id,
       sink->playlist_length = g_value_get_uint (value);
       sink->playlist->window_size = sink->playlist_length;
       break;
+    case PROP_CACHE_MODE:
+      sink->cache_mode = g_value_get_enum (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -462,6 +520,9 @@ gst_hls_sink2_get_property (GObject * object, guint prop_id,
       break;
     case PROP_PLAYLIST_LENGTH:
       g_value_set_uint (value, sink->playlist_length);
+      break;
+    case PROP_CACHE_MODE:
+      g_value_set_enum (value, sink->cache_mode);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
