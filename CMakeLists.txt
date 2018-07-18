@@ -23,6 +23,7 @@ pkg_check_modules(OPENSSL_MODULES REQUIRED
 include_directories(${OPENSSL_MODULES_INCLUDE_DIRS})
 link_directories   (${OPENSSL_MODULES_LIBRARY_DIRS})
 
+include(${CMAKE_HOME_DIRECTORY}/build.cmake)
 
 
 add_subdirectory( hls )
