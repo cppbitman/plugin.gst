@@ -25,6 +25,7 @@ link_directories   (${OPENSSL_MODULES_LIBRARY_DIRS})
 
 include(${CMAKE_HOME_DIRECTORY}/build.cmake)
 
-
 add_subdirectory( hls )
 add_subdirectory( multifile )
+add_subdirectory( memorysink )
+add_subdirectory( filesink )
