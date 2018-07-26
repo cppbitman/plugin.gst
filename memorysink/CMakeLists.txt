@@ -8,6 +8,7 @@ get_plugin_sources( sources )
 make_library(
     PROJECT ${project_name}
     SOURCES ${sources}
+    DEFINITIONS PACKAGE_NAME
     )
 
 get_install_dir ( install_dir )

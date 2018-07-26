@@ -34,6 +34,8 @@
  *
  */
 
+#include "../gst/gst-i18n-lib.h"
+
 #include "gstmemorysink.h"
 
 static GstStaticPadTemplate sinktemplate = GST_STATIC_PAD_TEMPLATE ("sink",
@@ -43,6 +45,16 @@ static GstStaticPadTemplate sinktemplate = GST_STATIC_PAD_TEMPLATE ("sink",
 
 GST_DEBUG_CATEGORY_STATIC (gst_memory_sink_debug);
 #define GST_CAT_DEFAULT gst_memory_sink_debug
+
+#define DEFAULT_LOCATION NULL
+#define DEFAULT_BUFFER_SIZE 	8*1024 * 1024
+
+enum {
+  PROP_0,
+  PROP_LOCATION,
+  PROP_BUFFER_SIZE,
+  PROP_LAST
+};
 
 
 static void gst_memory_sink_dispose (GObject * object);
@@ -60,9 +72,13 @@ static GstFlowReturn gst_memory_sink_render (GstBaseSink * sink,
 static GstFlowReturn gst_memory_sink_render_list (GstBaseSink * sink,
     GstBufferList * list);
 static gboolean gst_memory_sink_query (GstBaseSink * bsink, GstQuery * query);
- 
+
+#define _do_init \
+  GST_DEBUG_CATEGORY_INIT (gst_memory_sink_debug, "memorysink", 0, "memorysink element");
+
 #define gst_memory_sink_parent_class parent_class
-G_DEFINE_TYPE (GstMemorySink, gst_memory_sink, GST_TYPE_BASE_SINK);
+G_DEFINE_TYPE_WITH_CODE (GstMemorySink, gst_memory_sink, GST_TYPE_BASE_SINK,
+    _do_init);
 
 static void
 gst_memory_sink_class_init (GstMemorySinkClass * klass)
@@ -75,6 +91,17 @@ gst_memory_sink_class_init (GstMemorySinkClass * klass)
 
   gobject_class->set_property = gst_memory_sink_set_property;
   gobject_class->get_property = gst_memory_sink_get_property;
+  
+  g_object_class_install_property (gobject_class, PROP_LOCATION,
+      g_param_spec_string ("location", "File Location",
+          "Location of the file to write", DEFAULT_LOCATION,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));    
+          
+  g_object_class_install_property (gobject_class, PROP_BUFFER_SIZE,
+      g_param_spec_uint ("buffer-size", "Buffering size",
+          "Size of buffer in number of bytes for line or full buffer-mode", 0,
+          G_MAXUINT, DEFAULT_BUFFER_SIZE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   gst_element_class_set_static_metadata (gstelement_class,
       "Memory Sink",
@@ -94,14 +121,55 @@ gst_memory_sink_class_init (GstMemorySinkClass * klass)
 static void
 gst_memory_sink_init (GstMemorySink * memorysink)
 {
-  GST_DEBUG_CATEGORY_INIT (gst_memory_sink_debug, "memorysink", 0, "memorysink element");
+  memorysink->location = DEFAULT_LOCATION;
+  memorysink->buffer_size = DEFAULT_BUFFER_SIZE;
+  memorysink->buffer = NULL;
   gst_base_sink_set_sync (GST_BASE_SINK (memorysink), FALSE);
 }
 
 static void
 gst_memory_sink_dispose (GObject * object)
 {
+  GstMemorySink *sink = GST_MEMORY_SINK (object);
+
   G_OBJECT_CLASS (parent_class)->dispose (object);
+
+  g_free (sink->location);
+  sink->location = NULL;
+  g_free (sink->buffer);
+  sink->buffer = NULL;
+  sink->buffer_size = 0;
+}
+
+static gboolean
+gst_memory_sink_set_location (GstMemorySink * sink, const gchar * location,
+    GError ** error)
+{
+  if (sink->buffer)
+    goto was_open;
+
+  g_free (sink->location);
+  if (location != NULL) {
+    /* we store the filename as we received it from the application. On Windows
+     * this should be in UTF8 */
+    sink->location = g_strdup (location);
+    GST_INFO_OBJECT (sink, "location : %s", sink->location);
+  } else {
+    sink->location = NULL;
+  }
+
+  return TRUE;
+
+  /* ERRORS */
+was_open:
+  {
+    g_warning ("Changing the `location' property on memorysink when a memory is "
+        "allocated is not supported.");
+    g_set_error (error, GST_URI_ERROR, GST_URI_ERROR_BAD_STATE,
+        "Changing the 'location' property on memorysink when a memory is "
+        "allocated is not supported");
+    return FALSE;
+  }
 }
 
 static void
@@ -111,6 +179,12 @@ gst_memory_sink_set_property (GObject * object, guint prop_id,
   GstMemorySink *sink = GST_MEMORY_SINK (object);
 
   switch (prop_id) {
+    case PROP_LOCATION:
+      gst_memory_sink_set_location (sink, g_value_get_string (value), NULL);
+      break;
+    case PROP_BUFFER_SIZE:
+      sink->buffer_size = g_value_get_uint (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -124,6 +198,12 @@ gst_memory_sink_get_property (GObject * object, guint prop_id, GValue * value,
   GstMemorySink *sink = GST_MEMORY_SINK (object);
 
   switch (prop_id) {
+    case PROP_LOCATION:
+      g_value_set_string (value, sink->location);
+      break;
+    case PROP_BUFFER_SIZE:
+      g_value_set_uint (value, sink->buffer_size);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -134,8 +214,33 @@ static gboolean
 gst_memory_sink_query (GstBaseSink * bsink, GstQuery * query)
 {
   gboolean res;
+  GstMemorySink *self;
+  GstFormat format;
+
+  self = GST_MEMORY_SINK (bsink);
 
   switch (GST_QUERY_TYPE (query)) {
+    case GST_QUERY_POSITION:
+      gst_query_parse_position (query, &format, NULL);
+
+      switch( format ) {
+        case GST_FORMAT_DEFAULT:
+        case GST_FORMAT_BYTES:
+          gst_query_set_position (query, GST_FORMAT_BYTES, self->current_pos);
+          res = TRUE;
+          break;
+        default:
+          res = FALSE;
+          break;
+      }
+
+      break;
+
+    case GST_QUERY_FORMATS:
+      gst_query_set_formats (query, 2, GST_FORMAT_DEFAULT, GST_FORMAT_BYTES);
+      res = TRUE;
+      break;
+
     default:
       res = GST_BASE_SINK_CLASS (parent_class)->query (bsink, query);
       break;
@@ -151,9 +256,103 @@ gst_memory_sink_event (GstBaseSink * sink, GstEvent * event)
 }
 
 static GstFlowReturn
+gst_writev_buffers(GstMemorySink * sink, GstBuffer ** buffers,
+    guint num_buffers, guint8 * mem_nums, guint total_mems, guint64 * current_pos)
+{
+  GstMapInfo *map_infos;
+  GstFlowReturn flow_ret;
+  GstMemory *mem;
+  guint i, j, k;
+
+  guint64 bytes_written = 0;
+  gchar *pcurrent = sink->buffer + *current_pos;
+
+  GST_LOG_OBJECT (sink, "%u buffers, %u memories", num_buffers, total_mems);
+
+  map_infos = g_newa (GstMapInfo, total_mems);
+  k = 0;
+  for(i=0; i<num_buffers; ++i)
+  {
+    for(j=0; j<gst_buffer_n_memory(buffers[i]); ++j)
+    {
+      mem = gst_buffer_peek_memory(buffers[i], j);
+      if( gst_memory_map(mem, &map_infos[k], GST_MAP_READ) )
+      {
+        if(map_infos[k].size > 0)
+        {
+          if( pcurrent-sink->buffer+map_infos[k].size > sink->buffer_size )
+          {
+            goto write_error;
+          }
+
+          memcpy( pcurrent, map_infos[k].data, map_infos[k].size );
+          bytes_written += map_infos[k].size;
+          pcurrent += map_infos[k].size;
+        }
+      }
+      ++k ;
+    }
+  }
+
+  g_assert( k == total_mems );
+  *current_pos += bytes_written;
+
+  flow_ret = GST_FLOW_OK;
+  
+out:
+  for (i = 0; i < total_mems; ++i)
+    gst_memory_unmap (map_infos[i].memory, &map_infos[i]);
+
+  return flow_ret;
+
+write_error:
+  {
+    GST_ELEMENT_ERROR (sink, RESOURCE, NO_SPACE_LEFT, (_("No enough buffer space for writing GstBuffer.")), (NULL));
+    flow_ret = GST_FLOW_ERROR;
+    goto out;
+  }
+}
+
+static GstFlowReturn
+gst_memory_sink_render_buffers (GstMemorySink * sink, GstBuffer ** buffers,
+    guint num_buffers, guint8 * mem_nums, guint total_mems)
+{
+  GST_DEBUG_OBJECT (sink,
+    "writing %u buffers (%u memories) at position %" G_GUINT64_FORMAT,
+    num_buffers, total_mems, sink->current_pos);
+
+  return gst_writev_buffers(sink, buffers, num_buffers, mem_nums, total_mems, &sink->current_pos);
+}
+
+static GstFlowReturn
 gst_memory_sink_render_list (GstBaseSink * bsink, GstBufferList * buffer_list)
 {
-  goto no_data;
+  GstMemorySink *sink;
+  guint num_buffers;
+
+  GstBuffer **buffers;
+  guint8 *mem_nums;
+  guint total_mems;
+
+  guint i;
+  GstFlowReturn flow;
+
+  sink = GST_MEMORY_SINK_CAST (bsink);
+  num_buffers = gst_buffer_list_length (buffer_list);
+  
+  if (num_buffers == 0)
+    goto no_data;
+
+  buffers = g_newa (GstBuffer *, num_buffers);
+  mem_nums = g_newa (guint8, num_buffers);
+
+  for (i = 0, total_mems = 0; i < num_buffers; ++i) {
+    buffers[i] = gst_buffer_list_get (buffer_list, i);
+    mem_nums[i] = gst_buffer_n_memory (buffers[i]);
+    total_mems += mem_nums[i];
+  }
+
+  flow = gst_memory_sink_render_buffers (sink, buffers, num_buffers, mem_nums, total_mems);
 
 no_data:
   {
@@ -165,19 +364,75 @@ no_data:
 static GstFlowReturn
 gst_memory_sink_render (GstBaseSink * sink, GstBuffer * buffer)
 {
-  GstFlowReturn flow = GST_FLOW_OK;
+  GstMemorySink *memorysink;
+  GstFlowReturn flow;
+  guint8 n_mem;
+
+  memorysink = GST_MEMORY_SINK_CAST (sink);
+
+  n_mem = gst_buffer_n_memory (buffer);
+
+  if (n_mem > 0)
+    flow = gst_memory_sink_render_buffers (memorysink, &buffer, 1, &n_mem, n_mem);
+  else
+    flow = GST_FLOW_OK;
 
   return flow;
 }
 
 static gboolean
+gst_memory_sink_open_memory (GstMemorySink * sink)
+{
+  if(sink->location == NULL || sink->location[0] == '\0')
+    goto no_location;
+
+  sink->buffer = g_malloc0(sink->buffer_size);
+  if( sink->buffer == NULL )
+    goto open_failed;
+
+  sink->current_pos = 0;
+
+  GST_DEBUG_OBJECT (sink, "opened memory for location %s", sink->location);
+
+  return TRUE;
+  /* ERRORS */
+no_location:
+  {
+    GST_ELEMENT_ERROR (sink, RESOURCE, NOT_FOUND,
+        (_("No location specified for writing.")), (NULL));
+    return FALSE;
+  }
+
+open_failed:
+  {
+    GST_ELEMENT_ERROR (sink, RESOURCE, OPEN_WRITE,
+        (_("Could not open memory for writing \"%s\"."), sink->location),
+        GST_ERROR_SYSTEM);
+    return FALSE;
+  }
+}
+
+static void
+gst_memory_sink_close_memory (GstMemorySink * sink)
+{
+  if( sink->buffer )
+  {
+    g_free (sink->buffer);
+    sink->buffer = NULL;
+
+    GST_DEBUG_OBJECT (sink, "closed memory");
+  }
+}
+
+static gboolean
 gst_memory_sink_start (GstBaseSink * basesink)
 {
-  return TRUE;
+  return gst_memory_sink_open_memory( GST_MEMORY_SINK(basesink) );
 }
 
 static gboolean
 gst_memory_sink_stop (GstBaseSink * basesink)
 {
+  gst_memory_sink_close_memory( GST_MEMORY_SINK(basesink) );
   return TRUE;
 }

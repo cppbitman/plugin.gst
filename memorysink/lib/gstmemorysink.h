@@ -52,6 +52,14 @@ typedef struct _GstMemorySinkClass GstMemorySinkClass;
  */
 struct _GstMemorySink {
   GstBaseSink parent;
+
+  /*< private >*/
+  gchar *location;
+  
+  gchar  *buffer;
+  guint   buffer_size;
+
+  guint64 current_pos;
 };
 
 struct _GstMemorySinkClass {

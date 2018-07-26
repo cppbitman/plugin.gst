@@ -515,7 +515,7 @@ gst_file_sink_do_seek (GstFileSink * filesink, guint64 new_offset)
   GST_DEBUG_OBJECT (filesink, "Seeking to offset %" G_GUINT64_FORMAT
       " using " __GST_STDIO_SEEK_FUNCTION, new_offset);
 
-  if (fflush (filesink->file))
+  if (fflush (filesink->file))//Flush not needed when memory sink
     goto flush_failed;
 
 #ifdef HAVE_FSEEKO
