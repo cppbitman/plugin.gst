@@ -61,9 +61,9 @@ typedef struct _SplitMuxOutputCommand
 typedef struct _MqStreamBuf//info of GstBuffer streaming into _GstSplitMuxSink.queue
 {
   gboolean keyframe;
-  GstClockTimeDiff run_ts;
-  guint64 buf_size;
-  GstClockTime duration;
+  GstClockTimeDiff run_ts;   //_MqStreamCtx.in_running_time
+  guint64 buf_size;          // buffer size
+  GstClockTime duration;     // buffer duration
 } MqStreamBuf;
 
 typedef struct _MqStreamCtx
@@ -76,7 +76,7 @@ typedef struct _MqStreamCtx
   guint sink_pad_block_id; //_GstSplitMuxSink.queue.sinkpad.probe_id.(DATA_DOWNSTREAM+EVENT_FLUSH+QUERY_DOWNSTREAM)
   guint src_pad_block_id; //_GstSplitMuxSink.queue.srcpad.probe_id.(DATA_DOWNSTREAM+EVENT_FLUSH)
 
-  gboolean is_reference;  //_GstSplitMuxSink.reference_ctx
+  gboolean is_reference;  //_GstSplitMuxSink.reference_ctx. if the MqStreamCtx is reference context
 
   gboolean flushing;
   gboolean in_eos;
@@ -87,13 +87,13 @@ typedef struct _MqStreamCtx
   GstSegment in_segment;
   GstSegment out_segment;
 
-  GstClockTimeDiff in_running_time;
+  GstClockTimeDiff in_running_time;   //real-time valid running-time of GstBuffer streaming into _GstSplitMuxSink.queue
   GstClockTimeDiff out_running_time;
 
   GstBuffer *prev_in_keyframe; /* store keyframe for each GOP */
 
   GstElement *q;    //_GstSplitMuxSink.queue
-  GQueue queued_bufs;
+  GQueue queued_bufs;  //_MqStreamBuf
 
   GstPad *sinkpad;  //_GstSplitMuxSink.queue.sinkpad
   GstPad *srcpad;   //_GstSplitMuxSink.queue.srcpad
@@ -119,7 +119,7 @@ struct _GstSplitMuxSink
   guint max_files;    //[1]
   gboolean send_keyframe_requests;    //[1]
   gchar *threshold_timecode_str;    //[1]
-  GstClockTime next_max_tc_time;
+  GstClockTime next_max_tc_time;    //fragment_start_time + time_diff_calculated_according_to_[threshold_timecode_str]
   GstClockTime alignment_threshold;    //[1]
 
   GstElement *muxer;    //[2] pointer to muxer added to splitmuxsink, not increasing reference-count
@@ -138,7 +138,7 @@ struct _GstSplitMuxSink
   GList *contexts;    //MqStreamCtx
 
   SplitMuxInputState input_state;
-  GstClockTimeDiff max_in_running_time;
+  GstClockTimeDiff max_in_running_time;  //realtime max running-time of GstBuffer of reference stream streaming into queues
   /* Number of bytes sent to the
    * current fragment */
   guint64 fragment_total_bytes;
@@ -157,7 +157,7 @@ struct _GstSplitMuxSink
 
   guint64 muxed_out_bytes;
 
-  MqStreamCtx *reference_ctx;  //video pad MqStreamCtx associated with internal queue
+  MqStreamCtx *reference_ctx;  //video pad MqStreamCtx associated with internal queue or first non-video pad MqStreamCtx when no video stream
   /* Count of queued keyframes in the reference ctx */
   guint queued_keyframes;
 

@@ -864,6 +864,7 @@ calculate_next_max_timecode (GstSplitMuxSink * splitmux,
   return next_max_tc_time;
 }
 
+// "gst_video_event_new_upstream_force_key_unit" prerequest next keyframe to upstream
 static gboolean
 request_next_keyframe (GstSplitMuxSink * splitmux, GstBuffer * buffer)
 {
