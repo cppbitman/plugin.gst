@@ -51,6 +51,7 @@ GST_DEBUG_CATEGORY_STATIC (gst_hls_sink2_debug);
 #define DEFAULT_TARGET_DURATION 15
 #define DEFAULT_PLAYLIST_LENGTH 5
 #define DEFAULT_MODE MODE_DISK
+#define DEFAULT_SPLITMUXSINK "cussplitmuxsink"//splitmuxsink
 
 #define GST_M3U8_PLAYLIST_VERSION 3
 
@@ -234,7 +235,7 @@ gst_hls_sink2_init (GstHlsSink2 * sink)
   sink->cache_mode = DEFAULT_MODE;
   g_queue_init (&sink->old_locations);
 
-  sink->splitmuxsink = gst_element_factory_make ("splitmuxsink", NULL);
+  sink->splitmuxsink = gst_element_factory_make (DEFAULT_SPLITMUXSINK, NULL);
   gst_bin_add (GST_BIN (sink), sink->splitmuxsink);
 
   mux = gst_element_factory_make ("mpegtsmux", NULL);
@@ -489,6 +490,24 @@ gst_hls_sink2_set_property (GObject * object, guint prop_id,
       break;
     case PROP_CACHE_MODE:
       sink->cache_mode = g_value_get_enum (value);
+      if (sink->splitmuxsink)
+      {
+        GstElement *sink_sink = NULL;
+        switch(sink->cache_mode)
+        {
+        case MODE_MEMORY:
+          sink_sink = gst_element_factory_make ("memorysink", NULL);
+          break;
+        case MODE_DISK:
+          sink_sink = gst_element_factory_make ("filesink", NULL);
+          break;
+        default:
+          GST_ERROR ("invalid cache mode set");
+          GST_FIXME ("invalid cache mode set");
+          g_assert(0);
+        }
+        g_object_set (sink->splitmuxsink, "sink", sink_sink , NULL);
+      }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);

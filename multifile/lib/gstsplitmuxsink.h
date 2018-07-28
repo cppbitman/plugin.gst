@@ -58,7 +58,7 @@ typedef struct _SplitMuxOutputCommand
   GstClockTimeDiff max_output_ts;       /* Set the limit to stop GOP output */
 } SplitMuxOutputCommand;
 
-typedef struct _MqStreamBuf
+typedef struct _MqStreamBuf//info of GstBuffer streaming into _GstSplitMuxSink.queue
 {
   gboolean keyframe;
   GstClockTimeDiff run_ts;
@@ -72,11 +72,11 @@ typedef struct _MqStreamCtx
 
   GstSplitMuxSink *splitmux;
 
-  guint q_overrun_id;
-  guint sink_pad_block_id;
-  guint src_pad_block_id;
+  guint q_overrun_id;     //_GstSplitMuxSink.queue.overrun_id
+  guint sink_pad_block_id; //_GstSplitMuxSink.queue.sinkpad.probe_id.(DATA_DOWNSTREAM+EVENT_FLUSH+QUERY_DOWNSTREAM)
+  guint src_pad_block_id; //_GstSplitMuxSink.queue.srcpad.probe_id.(DATA_DOWNSTREAM+EVENT_FLUSH)
 
-  gboolean is_reference;
+  gboolean is_reference;  //_GstSplitMuxSink.reference_ctx
 
   gboolean flushing;
   gboolean in_eos;
@@ -92,15 +92,17 @@ typedef struct _MqStreamCtx
 
   GstBuffer *prev_in_keyframe; /* store keyframe for each GOP */
 
-  GstElement *q;
+  GstElement *q;    //_GstSplitMuxSink.queue
   GQueue queued_bufs;
 
-  GstPad *sinkpad;
-  GstPad *srcpad;
+  GstPad *sinkpad;  //_GstSplitMuxSink.queue.sinkpad
+  GstPad *srcpad;   //_GstSplitMuxSink.queue.srcpad
 
   GstBuffer *cur_out_buffer;
   GstEvent *pending_gap;
 } MqStreamCtx;
+
+//[1] properties
 
 struct _GstSplitMuxSink
 {
@@ -110,30 +112,30 @@ struct _GstSplitMuxSink
   GCond input_cond;
   GCond output_cond;
 
-  gdouble mux_overhead;
+  gdouble mux_overhead;    //[1]
 
-  GstClockTime threshold_time;
-  guint64 threshold_bytes;
-  guint max_files;
-  gboolean send_keyframe_requests;
-  gchar *threshold_timecode_str;
+  GstClockTime threshold_time;    //[1]
+  guint64 threshold_bytes;    //[1]
+  guint max_files;    //[1]
+  gboolean send_keyframe_requests;    //[1]
+  gchar *threshold_timecode_str;    //[1]
   GstClockTime next_max_tc_time;
-  GstClockTime alignment_threshold;
+  GstClockTime alignment_threshold;    //[1]
 
-  GstElement *muxer;
-  GstElement *sink;
+  GstElement *muxer;    //[2] pointer to muxer added to splitmuxsink, not increasing reference-count
+  GstElement *sink;     //[2] pointer to active_sink or internal-sink element of active_sink
 
-  GstElement *provided_muxer;
+  GstElement *provided_muxer;   //[1]
 
-  GstElement *provided_sink;
+  GstElement *provided_sink;    //[1]
   GstElement *active_sink;
 
   gboolean ready_for_output;
 
-  gchar *location;
-  guint fragment_id;
+  gchar *location;    //[1]
+  guint fragment_id;  //fragment sequence number
 
-  GList *contexts;
+  GList *contexts;    //MqStreamCtx
 
   SplitMuxInputState input_state;
   GstClockTimeDiff max_in_running_time;
@@ -155,18 +157,18 @@ struct _GstSplitMuxSink
 
   guint64 muxed_out_bytes;
 
-  MqStreamCtx *reference_ctx;
+  MqStreamCtx *reference_ctx;  //video pad MqStreamCtx associated with internal queue
   /* Count of queued keyframes in the reference ctx */
   guint queued_keyframes;
 
   gboolean switching_fragment;
 
-  gboolean have_video;
+  gboolean have_video;    //video pad requested
 
   gboolean need_async_start;
   gboolean async_pending;
 
-  gboolean use_robust_muxing;
+  gboolean use_robust_muxing;    //[1]
   gboolean muxer_has_reserved_props;
 
   gboolean split_now;
