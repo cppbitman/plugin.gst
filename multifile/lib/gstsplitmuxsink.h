@@ -172,7 +172,7 @@ struct _GstSplitMuxSink
   gboolean async_pending;
 
   gboolean use_robust_muxing;    //[1]
-  gboolean muxer_has_reserved_props;
+  gboolean muxer_has_reserved_props; //muxer has properties "reserved-max-duration" and "reserved-duration-remaining"
 
   gboolean split_now;
 };

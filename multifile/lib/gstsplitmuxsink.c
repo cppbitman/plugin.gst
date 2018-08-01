@@ -725,7 +725,7 @@ send_eos (GstSplitMuxSink * splitmux, MqStreamCtx * ctx)
  * up for starting next fragment, output-state will migrate from SPLITMUX_OUTPUT_STATE_AWAITING_COMMAND to 
  * SPLITMUX_OUTPUT_STATE_ENDING_FILE and send_eos to sink.(sink would post GST_MESSAGE_EOS) Then in bus_handler 
  * output-state migrates from SPLITMUX_OUTPUT_STATE_ENDING_FILE to SPLITMUX_OUTPUT_STATE_START_NEXT_FILE
- * 
+ * RETURN: means complete to output
  */
 static void
 complete_or_wait_on_out (GstSplitMuxSink * splitmux, MqStreamCtx * ctx)
@@ -763,6 +763,7 @@ complete_or_wait_on_out (GstSplitMuxSink * splitmux, MqStreamCtx * ctx)
     if (can_output) {
       if (splitmux->max_out_running_time == GST_CLOCK_STIME_NONE ||
           ctx->out_running_time < my_max_out_running_time) {
+            //probe pass through
         return;
       }
 
