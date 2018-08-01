@@ -60,7 +60,7 @@ typedef struct _SplitMuxOutputCommand
 
 typedef struct _MqStreamBuf//info of GstBuffer streaming into _GstSplitMuxSink.queue
 {
-  gboolean keyframe;
+  gboolean keyframe;         //if keyframe
   GstClockTimeDiff run_ts;   //_MqStreamCtx.in_running_time
   guint64 buf_size;          // buffer size
   GstClockTime duration;     // buffer duration
@@ -78,41 +78,42 @@ typedef struct _MqStreamCtx
 
   gboolean is_reference;  //_GstSplitMuxSink.reference_ctx. if the MqStreamCtx is reference context
 
-  gboolean flushing;
-  gboolean in_eos;
+  gboolean flushing;     //_GstSplitMuxSink.queue.srcpad probes EVENT_FLUSH, _GstSplitMuxSink.queue is flushing
+  gboolean in_eos;       //_GstSplitMuxSink.queue.sinkpad probes EOS
   gboolean out_eos;
   gboolean need_unblock;
   gboolean caps_change;
 
-  GstSegment in_segment;
-  GstSegment out_segment;
+  GstSegment in_segment;  //Segment _GstSplitMuxSink.queue.sinkpad probes and lets through
+  GstSegment out_segment; //Segment _GstSplitMuxSink.queue.srcpad probes and lets through
 
   GstClockTimeDiff in_running_time;   //real-time valid running-time of GstBuffer streaming into _GstSplitMuxSink.queue
-  GstClockTimeDiff out_running_time;
+  GstClockTimeDiff out_running_time;  //real-time valid running-time of GstBuffer streaming outof _GstSplitMuxSink.queue and into _GstSplitMuxSink.muxer
 
   GstBuffer *prev_in_keyframe; /* store keyframe for each GOP */
 
   GstElement *q;    //_GstSplitMuxSink.queue
-  GQueue queued_bufs;  //_MqStreamBuf
+  GQueue queued_bufs;  //_MqStreamBuf, record GstBuffer info _GstSplitMuxSink.queue.sinkpad probes and lets through
 
   GstPad *sinkpad;  //_GstSplitMuxSink.queue.sinkpad
   GstPad *srcpad;   //_GstSplitMuxSink.queue.srcpad
 
-  GstBuffer *cur_out_buffer;
-  GstEvent *pending_gap;
+  GstBuffer *cur_out_buffer;  //pointer to current buffer streaming outof _GstSplitMuxSink.queue and into _GstSplitMuxSink.muxer
+  GstEvent *pending_gap;  
 } MqStreamCtx;
 
 //[1] properties
-
+//GOP is the basic unit streaming into muxer
 struct _GstSplitMuxSink
 {
   GstBin parent;
-
-  GMutex lock;
-  GCond input_cond;
+  //[begin] for multiple streams synchronization
+  GMutex lock;            //singleton lock for all pads input
+  GCond input_cond;       //conditional variable for all pads input
   GCond output_cond;
+  //[end] for multiple streams synchronization
 
-  gdouble mux_overhead;    //[1]
+  gdouble mux_overhead;    //[1] to calculate queue_bytes
 
   GstClockTime threshold_time;    //[1]
   guint64 threshold_bytes;    //[1]
@@ -128,17 +129,19 @@ struct _GstSplitMuxSink
   GstElement *provided_muxer;   //[1]
 
   GstElement *provided_sink;    //[1]
-  GstElement *active_sink;
+  GstElement *active_sink;      //[2] pointer to sink bin
 
   gboolean ready_for_output;
 
   gchar *location;    //[1]
   guint fragment_id;  //fragment sequence number
 
-  GList *contexts;    //MqStreamCtx
+  GList *contexts;    //q.MqStreamCtx
 
-  SplitMuxInputState input_state;
+  SplitMuxInputState input_state;        //q.sinkpad state variable
   GstClockTimeDiff max_in_running_time;  //realtime max running-time of GstBuffer of reference stream streaming into queues
+                                         //it's updated continuously and kept unchanged when sinkpad receiving keyframe in loop 
+                                         //to wait for non-reference stream catching up
   /* Number of bytes sent to the
    * current fragment */
   guint64 fragment_total_bytes;
@@ -153,17 +156,17 @@ struct _GstSplitMuxSink
   GQueue out_cmd_q;             /* Queue of commands for output thread */
 
   SplitMuxOutputState output_state;
-  GstClockTimeDiff max_out_running_time;
+  GstClockTimeDiff max_out_running_time;  //current max running time for output gop
 
-  guint64 muxed_out_bytes;
+  guint64 muxed_out_bytes;     //buffer size streaming into muxer
 
   MqStreamCtx *reference_ctx;  //video pad MqStreamCtx associated with internal queue or first non-video pad MqStreamCtx when no video stream
   /* Count of queued keyframes in the reference ctx */
   guint queued_keyframes;
 
-  gboolean switching_fragment;
+  gboolean switching_fragment;  //indicates switching fragment now
 
-  gboolean have_video;    //video pad requested
+  gboolean have_video;    //video pad requested only once
 
   gboolean need_async_start;
   gboolean async_pending;

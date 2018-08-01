@@ -708,6 +708,24 @@ send_eos (GstSplitMuxSink * splitmux, MqStreamCtx * ctx)
 /* Called with splitmux lock held to check if this output
  * context needs to sleep to wait for the release of the
  * next GOP, or to send EOS to close out the current file
+ * 
+ * WAIT: two situations, 
+ * First for reference context, ctx->out_running_time
+ * and splitmux->max_out_running_time is initially being zero, so program runs 
+ * to switch case SPLITMUX_OUTPUT_STATE_START_NEXT_FILE and executes start_next_fragment
+ * to prepare muxer and sink for next new fragment and changes state to 
+ * SPLITMUX_OUTPUT_STATE_AWAITING_COMMAND, then continue to next loop and execute
+ *  GST_SPLITMUX_WAIT_OUTPUT to wait for handle_gathered_gop to wake up for outputing gop or 
+ * for starting next fragment. (1)If waking up for outputing gop, output-state will migrate from
+ * SPLITMUX_OUTPUT_STATE_AWAITING_COMMAND to SPLITMUX_OUTPUT_STATE_OUTPUT_GOP, and max_out_running_time
+ * is updated to next gop keyframe running time. Then because ctx->out_running_time < my_max_out_running_time
+ * complete_or_wait_on_out return immediately to let GstBuffer streaming into muxer, until nexttime
+ * ctx->out_running_time >= my_max_out_running_time. At that time output-state immediately migrate from 
+ * SPLITMUX_OUTPUT_STATE_OUTPUT_GOP to SPLITMUX_OUTPUT_STATE_AWAITING_COMMAND to start next round. (2)If waking 
+ * up for starting next fragment, output-state will migrate from SPLITMUX_OUTPUT_STATE_AWAITING_COMMAND to 
+ * SPLITMUX_OUTPUT_STATE_ENDING_FILE and send_eos to sink.(sink would post GST_MESSAGE_EOS) Then in bus_handler 
+ * output-state migrates from SPLITMUX_OUTPUT_STATE_ENDING_FILE to SPLITMUX_OUTPUT_STATE_START_NEXT_FILE
+ * 
  */
 static void
 complete_or_wait_on_out (GstSplitMuxSink * splitmux, MqStreamCtx * ctx)
@@ -759,7 +777,7 @@ complete_or_wait_on_out (GstSplitMuxSink * splitmux, MqStreamCtx * ctx)
         case SPLITMUX_OUTPUT_STATE_ENDING_FILE:
           /* We've reached the max out running_time to get here, so end this file now */
           if (ctx->out_eos == FALSE) {
-            send_eos (splitmux, ctx);
+            send_eos (splitmux, ctx);//for all stream contexts only send_eos once
             continue;
           }
           break;
@@ -1482,6 +1500,10 @@ handle_gathered_gop (GstSplitMuxSink * splitmux)
 /* Called from each input pad when it is has all the pieces
  * for a GOP or EOS, starting with the reference pad which has set the
  * splitmux->max_in_running_time
+ * 
+ * Called when reference stream sinkpad received keyframe or 
+ * non-reference stream sinkpad received GstBuffer with running-timestamp
+ * greater than splitmux->max_in_running_time
  */
 static void
 check_completed_gop (GstSplitMuxSink * splitmux, MqStreamCtx * ctx)
@@ -1762,6 +1784,7 @@ handle_mq_input (GstPad * pad, GstPadProbeInfo * info, MqStreamCtx * ctx)
           splitmux->max_in_running_time = ctx->in_running_time;
           /* Wake up other input pads to collect this GOP */
           GST_SPLITMUX_BROADCAST_INPUT (splitmux);
+          //Note: maybe following two lines need exchange for handle_gathered_gop:request_next_keyframe's need
           check_completed_gop (splitmux, ctx);
           /* Store this new keyframe to remember the start of GOP */
           gst_buffer_replace (&ctx->prev_in_keyframe, buf);
