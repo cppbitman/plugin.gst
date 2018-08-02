@@ -56,6 +56,12 @@ enum {
   PROP_LAST
 };
 
+enum {
+  SIGNAL_MOVE,
+  SIGNAL_LAST
+};
+
+static guint signals[SIGNAL_LAST];
 
 static void gst_memory_sink_dispose (GObject * object);
 
@@ -73,6 +79,8 @@ static GstFlowReturn gst_memory_sink_render_list (GstBaseSink * sink,
     GstBufferList * list);
 static gboolean gst_memory_sink_query (GstBaseSink * bsink, GstQuery * query);
 
+static GstMemory* gst_memory_sink_move ( GstMemorySink* sink, gchar* cur_location);
+
 #define _do_init \
   GST_DEBUG_CATEGORY_INIT (gst_memory_sink_debug, "memorysink", 0, "memorysink element");
 
@@ -87,10 +95,22 @@ gst_memory_sink_class_init (GstMemorySinkClass * klass)
   GstElementClass *gstelement_class = GST_ELEMENT_CLASS (klass);
   GstBaseSinkClass *gstbasesink_class = GST_BASE_SINK_CLASS (klass);
 
+  gst_element_class_set_static_metadata (gstelement_class, "Memory Sink",
+      "Sink/Memory", "Write stream to memory", "daihongjun <daihongjun at kedacom dot com>");
+
+  gst_element_class_add_static_pad_template (gstelement_class, &sinktemplate);
+
   gobject_class->dispose = gst_memory_sink_dispose;
 
   gobject_class->set_property = gst_memory_sink_set_property;
   gobject_class->get_property = gst_memory_sink_get_property;
+  
+  gstbasesink_class->start = GST_DEBUG_FUNCPTR (gst_memory_sink_start);
+  gstbasesink_class->stop = GST_DEBUG_FUNCPTR (gst_memory_sink_stop);
+  gstbasesink_class->query = GST_DEBUG_FUNCPTR (gst_memory_sink_query);
+  gstbasesink_class->render = GST_DEBUG_FUNCPTR (gst_memory_sink_render);
+  gstbasesink_class->render_list = GST_DEBUG_FUNCPTR (gst_memory_sink_render_list);
+  gstbasesink_class->event = GST_DEBUG_FUNCPTR (gst_memory_sink_event);
   
   g_object_class_install_property (gobject_class, PROP_LOCATION,
       g_param_spec_string ("location", "File Location",
@@ -102,20 +122,20 @@ gst_memory_sink_class_init (GstMemorySinkClass * klass)
           "Size of buffer in number of bytes for line or full buffer-mode", 0,
           G_MAXUINT, DEFAULT_BUFFER_SIZE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  gst_element_class_set_static_metadata (gstelement_class,
-      "Memory Sink",
-      "Sink/Memory", "Write stream to memory",
-      "Sevent <daihongjun at kedacom dot com>");
-  gst_element_class_add_static_pad_template (gstelement_class, &sinktemplate);
-
-  gstbasesink_class->start = GST_DEBUG_FUNCPTR (gst_memory_sink_start);
-  gstbasesink_class->stop = GST_DEBUG_FUNCPTR (gst_memory_sink_stop);
-  gstbasesink_class->query = GST_DEBUG_FUNCPTR (gst_memory_sink_query);
-  gstbasesink_class->render = GST_DEBUG_FUNCPTR (gst_memory_sink_render);
-  gstbasesink_class->render_list =
-      GST_DEBUG_FUNCPTR (gst_memory_sink_render_list);
-  gstbasesink_class->event = GST_DEBUG_FUNCPTR (gst_memory_sink_event);
+          
+  /**
+   * GstMemorySink::move:
+   * @memorysink: the #GstMemorySink
+   *
+   * When called by the user, this action signal moves and returns the cached media buffer as GstMemory .
+   *
+   */
+  
+  signals[SIGNAL_MOVE] =
+      g_signal_new ("move", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST, G_STRUCT_OFFSET (GstMemorySinkClass,
+          move), NULL, NULL, NULL, GST_TYPE_MEMORY, 1, G_TYPE_STRING);
+  klass->move = gst_memory_sink_move;
 }
 
 static void
@@ -435,4 +455,24 @@ gst_memory_sink_stop (GstBaseSink * basesink)
 {
   gst_memory_sink_close_memory( GST_MEMORY_SINK(basesink) );
   return TRUE;
+}
+
+static GstMemory* 
+gst_memory_sink_move ( GstMemorySink* sink, gchar* cur_location)
+{
+  g_return_val_if_fail(cur_location != NULL, NULL);
+  g_return_val_if_fail( g_strcmp0(cur_location, sink->location) == 0 , NULL);
+
+  GstMemory *media = gst_memory_new_wrapped( 
+    GST_MEMORY_FLAG_READONLY|GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, 
+    sink->buffer,  DEFAULT_BUFFER_SIZE, 0, sink->buffer_size, NULL, NULL);
+
+  g_return_val_if_fail(media != NULL, NULL);
+  
+  {//FIXME
+    g_free(sink->location);
+    sink->buffer = NULL;
+    sink->buffer_size = 0;
+  }
+  return media;
 }

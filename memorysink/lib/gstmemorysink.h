@@ -64,6 +64,7 @@ struct _GstMemorySink {
 
 struct _GstMemorySinkClass {
   GstBaseSinkClass parent_class;
+  GstMemory* (*move) ( GstMemorySink* sink, gchar* cur_location);
 };
 
 GType gst_memory_sink_get_type (void);
