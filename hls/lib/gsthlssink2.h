@@ -36,31 +36,43 @@ typedef struct _GstHlsSink2Class GstHlsSink2Class;
 
 typedef enum
 {
-  MODE_DISK = 0,
-  MODE_MEMORY = 1,
+  MODE_DISK = 0,  //default cache mode, to file
+  MODE_MEMORY = 1, //cache media to memory
 } GstHlsSink2CacheMode;
 
+typedef struct _HlsFragmentBuf
+{
+  gchar *location;    // ts filename
+  GstMemory * media; // ts fragment
+} HlsFragmentBuf;
+
+//[1] property
 struct _GstHlsSink2
 {
   GstBin bin;
 
   GstElement *splitmuxsink;
-  GstPad *audio_sink, *video_sink;
+  GstPad *audio_sink, *video_sink;  //hlssink2's sinks
 
-  gchar *location;
-  gchar *playlist_location;
-  gchar *playlist_root;
-  guint playlist_length;
-  gint max_files;
-  gint target_duration;
-  GstHlsSink2CacheMode cache_mode;
+  gchar *location;          //[1] splitmuxsink.location
+  gchar *playlist_location; //[1] m3u8 location 
+  gchar *playlist_root;     //[1] prefix path to build m3u8 entry-location
+  guint playlist_length;    //[1] playlist.window_size
+  gint max_files;           //[1] !!!unavailable by now
+  gint target_duration;     //[1] splitmuxsink.max-size-time
 
   GstM3U8Playlist *playlist;
-  guint index;
+  guint index;  //realtime index of m3u8 entry, update continuously
 
-  gchar *current_location;
-  GstClockTime current_running_time_start;
-  GQueue old_locations;
+  gchar *current_location;  //realtime splitmuxsink.location(fragment filename) when new fragment opened
+  GstClockTime current_running_time_start;  //realtime running time of first fragment buffer
+  GQueue old_locations;  //splitmuxsink.location cache list, in from tail
+
+  //for MODE_MEMORY
+  GstHlsSink2CacheMode cache_mode; //[1] save in file or memory
+  GstElement *inner_sink;   //retrieve media buffer from When MODE_MEMORY
+  gchar* playlist_cache;    //cache playlist content when MODE_MEMORY
+  GQueue fragment_cache;    //cache media when MODE_MEMORY, HlsFragmentBuf queue
 };
 
 struct _GstHlsSink2Class

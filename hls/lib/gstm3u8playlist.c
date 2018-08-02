@@ -126,6 +126,7 @@ gst_m3u8_playlist_add_entry (GstM3U8Playlist * playlist,
   return TRUE;
 }
 
+//Maximum fragment duration rounding up
 static guint
 gst_m3u8_playlist_target_duration (GstM3U8Playlist * playlist)
 {

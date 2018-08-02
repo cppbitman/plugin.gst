@@ -30,12 +30,12 @@ typedef struct _GstM3U8Playlist GstM3U8Playlist;
 
 struct _GstM3U8Playlist
 {
-  guint version;
-  gboolean allow_cache;
-  gint window_size;
+  guint version;        //M3U8 version
+  gboolean allow_cache; //#EXT-X-ALLOW-CACHE
+  gint window_size;     //M3U8 #EXTINF number
   gint type;
-  gboolean end_list;
-  guint sequence_number;
+  gboolean end_list;    //whether #EXT-X-ENDLIST
+  guint sequence_number;//total number of entries has been pushed into queue "entries"
 
   /*< Private >*/
   GQueue *entries;

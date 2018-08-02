@@ -50,11 +50,14 @@ GST_DEBUG_CATEGORY_STATIC (gst_hls_sink2_debug);
 #define DEFAULT_MAX_FILES 10
 #define DEFAULT_TARGET_DURATION 15
 #define DEFAULT_PLAYLIST_LENGTH 5
-#define DEFAULT_MODE MODE_DISK
-#define DEFAULT_SPLITMUXSINK "cussplitmuxsink"//splitmuxsink
+#define DEFAULT_CACHE_MODE MODE_DISK
+#define DEFAULT_SPLITMUX_SINK "cussplitmuxsink"//splitmuxsink
 
 #define GST_M3U8_PLAYLIST_VERSION 3
 
+#define FIXME_ENABLE_SIGNAL 0
+
+#if FIXME_ENABLE_SIGNAL
 enum
 {
   SIGNAL_0,
@@ -63,6 +66,7 @@ enum
 };
 
 static guint gst_hls_sink2_signals[LAST_SIGNAL] = { 0 };
+#endif
 
 enum
 {
@@ -121,11 +125,48 @@ gst_hls_sink2_cache_mode_get_type (void)
   return gtype;
 }
 
+static HlsFragmentBuf*
+hls_fragment_buf_new(gchar* location, GstMemory * media)
+{
+  HlsFragmentBuf* buf;
+
+  g_return_val_if_fail(location != NULL, NULL);
+  g_return_val_if_fail(media != NULL, NULL);
+
+  buf = g_slice_new0(HlsFragmentBuf);
+
+  buf->location = g_strdup(location);
+  buf->media = media;
+
+  return buf;
+}
+
+static void
+hls_fragment_buf_free (HlsFragmentBuf * buf)
+{
+  g_return_if_fail (buf != NULL);
+
+  g_free(buf->location);
+  gst_memory_unref(buf->media);
+
+  g_slice_free (HlsFragmentBuf, buf);
+}
+
+static void
+hls_playlist_replace(gchar **oldpl, gchar* newpl)
+{
+  if(*oldpl != NULL) {
+    g_free(*oldpl);
+  }
+  *oldpl = newpl;
+}
 
 static void
 gst_hls_sink2_dispose (GObject * object)
 {
   GstHlsSink2 *sink = GST_HLS_SINK2_CAST (object);
+  
+  sink->splitmuxsink = sink->inner_sink = NULL;
 
   G_OBJECT_CLASS (parent_class)->dispose ((GObject *) sink);
 }
@@ -143,6 +184,11 @@ gst_hls_sink2_finalize (GObject * object)
 
   g_queue_foreach (&sink->old_locations, (GFunc) g_free, NULL);
   g_queue_clear (&sink->old_locations);
+
+  hls_playlist_replace(&sink->playlist_cache, NULL);
+
+  g_queue_foreach (&sink->fragment_cache, (GFunc) hls_fragment_buf_free, NULL);
+  g_queue_clear (&sink->fragment_cache);
 
   G_OBJECT_CLASS (parent_class)->finalize ((GObject *) sink);
 }
@@ -213,12 +259,23 @@ gst_hls_sink2_class_init (GstHlsSink2Class * klass)
   g_object_class_install_property (gobject_class, PROP_CACHE_MODE,
       g_param_spec_enum ("cache-mode", "Cache Mode",
           "Cache mode of m3u8 playlist content and segments,on disk or memory",
-          GST_HLS_SINK2_CACHE_MODE, DEFAULT_MODE, 
+          GST_HLS_SINK2_CACHE_MODE, DEFAULT_CACHE_MODE, 
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  #if FIXME_ENABLE_SIGNAL
+  /**
+   * GstHlsSink2::on-m3u8-playlist:
+   * @hlssink2: the #GstHlsSink2
+   *
+   * When called by the user, this action signal returns m3u8 playlist immediately.
+   * Maybe ts cache buffer together
+   *
+   * !!!
+   */
   gst_hls_sink2_signals[ON_M3U8_PLAYLIST_SIGNAL] =
-      g_signal_new_class_handler("on-m3u8-playlist", G_TYPE_FROM_CLASS(klass),
-      G_SIGNAL_RUN_LAST, NULL, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING);
+      g_signal_new_class_handler("get-playlist", G_TYPE_FROM_CLASS(klass),
+      G_SIGNAL_RUN_LAST, NULL, NULL, NULL, NULL, G_TYPE_STRING, 0);
+  #endif
 }
 
 static void
@@ -232,10 +289,12 @@ gst_hls_sink2_init (GstHlsSink2 * sink)
   sink->playlist_length = DEFAULT_PLAYLIST_LENGTH;
   sink->max_files = DEFAULT_MAX_FILES;
   sink->target_duration = DEFAULT_TARGET_DURATION;
-  sink->cache_mode = DEFAULT_MODE;
+  sink->cache_mode = DEFAULT_CACHE_MODE;
   g_queue_init (&sink->old_locations);
+  sink->playlist_cache = NULL;
+  g_queue_init (&sink->fragment_cache);
 
-  sink->splitmuxsink = gst_element_factory_make (DEFAULT_SPLITMUXSINK, NULL);
+  sink->splitmuxsink = gst_element_factory_make (DEFAULT_SPLITMUX_SINK, NULL);
   gst_bin_add (GST_BIN (sink), sink->splitmuxsink);
 
   mux = gst_element_factory_make ("mpegtsmux", NULL);
@@ -255,12 +314,17 @@ gst_hls_sink2_reset (GstHlsSink2 * sink)
 
   if (sink->playlist)
     gst_m3u8_playlist_free (sink->playlist);
-    sink->playlist =
+  sink->playlist =
       gst_m3u8_playlist_new (GST_M3U8_PLAYLIST_VERSION, sink->playlist_length,
       FALSE);
 
   g_queue_foreach (&sink->old_locations, (GFunc) g_free, NULL);
   g_queue_clear (&sink->old_locations);
+
+  hls_playlist_replace(&sink->playlist_cache, NULL);
+  
+  g_queue_foreach (&sink->fragment_cache, (GFunc) hls_fragment_buf_free, NULL);
+  g_queue_clear (&sink->fragment_cache);
 }
 
 static void
@@ -280,18 +344,27 @@ gst_hls_sink2_write_playlist (GstHlsSink2 * sink)
         g_error_free (error);
         error = NULL;
     }
+    g_free (playlist_content);
   }
   else if( sink->cache_mode == MODE_MEMORY )
   {
-    g_signal_emit(sink, gst_hls_sink2_signals[ON_M3U8_PLAYLIST_SIGNAL],
-      0, playlist_content);
+    GstMemory *media = NULL;
+    HlsFragmentBuf* buf;
+
+    g_signal_emit_by_name (sink->inner_sink, "move", sink->current_location, &media);
+    buf = hls_fragment_buf_new(sink->current_location, media);
+    
+    GST_DEBUG_OBJECT(sink, "HlsFragmentBuf %" GST_PTR_FORMAT 
+      "for fragment %s with memory %" GST_PTR_FORMAT, buf, sink->current_location, media);
+
+    g_queue_push_tail(&sink->fragment_cache, buf);
+
+    hls_playlist_replace(&sink->playlist_cache, playlist_content);
   }
   else
   {
-    GST_ERROR ("invalide cache mode set for m3u8 and segments");
+    g_warn_if_reached();
   }
-  g_free (playlist_content);
-
 }
 
 static void
@@ -335,15 +408,27 @@ gst_hls_sink2_handle_message (GstBin * bin, GstMessage * message)
 
           gst_hls_sink2_write_playlist (sink);
 
+          //following codes to remove out-of-date fragment on disk or on memory-cache
           g_queue_push_tail (&sink->old_locations,
               g_strdup (sink->current_location));
 
           while (g_queue_get_length (&sink->old_locations) >
               g_queue_get_length (sink->playlist->entries)) {
             gchar *old_location = g_queue_pop_head (&sink->old_locations);
-            g_remove (old_location);
+            
+            if(sink->cache_mode == MODE_DISK) {//remove fragment file on disk
+              g_remove (old_location);
+            }
+            else if(sink->cache_mode == MODE_MEMORY) {
+              HlsFragmentBuf* buf = g_queue_pop_head(&sink->fragment_cache);
+              hls_fragment_buf_free(buf);
+            }
+            else {
+              g_warn_if_reached();
+            }
             g_free (old_location);
           }
+          
         }
       }
       break;
@@ -406,6 +491,7 @@ gst_hls_sink2_release_pad (GstElement * element, GstPad * pad)
 
   peer = gst_pad_get_peer (pad);
   if (peer) {
+    //????? release ghost-pad "pad"
     gst_element_release_request_pad (sink->splitmuxsink, pad);
     gst_object_unref (peer);
   }
@@ -490,23 +576,10 @@ gst_hls_sink2_set_property (GObject * object, guint prop_id,
       break;
     case PROP_CACHE_MODE:
       sink->cache_mode = g_value_get_enum (value);
-      if (sink->splitmuxsink)
-      {
-        GstElement *sink_sink = NULL;
-        switch(sink->cache_mode)
-        {
-        case MODE_MEMORY:
-          sink_sink = gst_element_factory_make ("memorysink", NULL);
-          break;
-        case MODE_DISK:
-          sink_sink = gst_element_factory_make ("filesink", NULL);
-          break;
-        default:
-          GST_ERROR ("invalid cache mode set");
-          GST_FIXME ("invalid cache mode set");
-          g_assert(0);
-        }
-        g_object_set (sink->splitmuxsink, "sink", sink_sink , NULL);
+      if(sink->splitmuxsink) {
+        gchar *factory_name = (sink->cache_mode == MODE_MEMORY) ? "memorysink" : "filesink";
+        sink->inner_sink = gst_element_factory_make (factory_name, NULL);
+        g_object_set (sink->splitmuxsink, "sink", sink->inner_sink , NULL);
       }
       break;
     default:
