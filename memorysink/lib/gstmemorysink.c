@@ -139,12 +139,14 @@ gst_memory_sink_class_init (GstMemorySinkClass * klass)
 }
 
 static void
-gst_memory_sink_init (GstMemorySink * memorysink)
+gst_memory_sink_init (GstMemorySink * sink)
 {
-  memorysink->location = DEFAULT_LOCATION;
-  memorysink->buffer_size = DEFAULT_BUFFER_SIZE;
-  memorysink->buffer = NULL;
-  gst_base_sink_set_sync (GST_BASE_SINK (memorysink), FALSE);
+  sink->location = DEFAULT_LOCATION;
+  sink->buffer_size = DEFAULT_BUFFER_SIZE;
+  sink->buffer = NULL;
+  sink->current_pos = 0;
+  sink->eos = FALSE;
+  gst_base_sink_set_sync (GST_BASE_SINK (sink), FALSE);
 }
 
 static void
@@ -154,21 +156,28 @@ gst_memory_sink_dispose (GObject * object)
 
   G_OBJECT_CLASS (parent_class)->dispose (object);
 
-  g_free (sink->location);
-  sink->location = NULL;
-  g_free (sink->buffer);
-  sink->buffer = NULL;
-  sink->buffer_size = 0;
+  if(sink->location) {
+    g_free (sink->location);
+    sink->location = NULL;
+  }
+  if(sink->buffer) {
+    g_free (sink->buffer);
+    sink->buffer = NULL;
+  }
+  sink->current_pos = 0;
+  sink->eos = FALSE;
 }
 
 static gboolean
 gst_memory_sink_set_location (GstMemorySink * sink, const gchar * location,
     GError ** error)
 {
-  if (sink->buffer)
+  if (sink->buffer)//null after move
     goto was_open;
-
-  g_free (sink->location);
+  
+  if(sink->location)
+    g_free (sink->location);
+  
   if (location != NULL) {
     /* we store the filename as we received it from the application. On Windows
      * this should be in UTF8 */
@@ -272,11 +281,23 @@ gst_memory_sink_query (GstBaseSink * bsink, GstQuery * query)
 static gboolean
 gst_memory_sink_event (GstBaseSink * sink, GstEvent * event)
 {
+  GstEventType type;
+  GstMemorySink *msink;
+  
+  msink = GST_MEMORY_SINK (sink);
+  switch (type) {
+    case GST_EVENT_EOS:
+      msink->eos = TRUE;
+      break;
+    default:
+      break;
+  }
+
   return GST_BASE_SINK_CLASS (parent_class)->event (sink, event);
 }
 
 static GstFlowReturn
-gst_writev_buffers(GstMemorySink * sink, GstBuffer ** buffers,
+gst_memory_sink_copy_buffers(GstMemorySink * sink, GstBuffer ** buffers,
     guint num_buffers, guint8 * mem_nums, guint total_mems, guint64 * current_pos)
 {
   GstMapInfo *map_infos;
@@ -290,21 +311,16 @@ gst_writev_buffers(GstMemorySink * sink, GstBuffer ** buffers,
   GST_LOG_OBJECT (sink, "%u buffers, %u memories", num_buffers, total_mems);
 
   map_infos = g_newa (GstMapInfo, total_mems);
-  k = 0;
-  for(i=0; i<num_buffers; ++i)
-  {
-    for(j=0; j<gst_buffer_n_memory(buffers[i]); ++j)
-    {
+  
+  for(i=0, k = 0; i<num_buffers; ++i) {
+    g_assert( mem_nums[i]== gst_buffer_n_memory(buffers[i]) );
+    for(j=0; j<mem_nums[i]; ++j) {
       mem = gst_buffer_peek_memory(buffers[i], j);
-      if( gst_memory_map(mem, &map_infos[k], GST_MAP_READ) )
-      {
-        if(map_infos[k].size > 0)
-        {
-          if( pcurrent-sink->buffer+map_infos[k].size > sink->buffer_size )
-          {
+      if( gst_memory_map(mem, &map_infos[k], GST_MAP_READ) ) {
+        if(map_infos[k].size > 0) {
+          if( pcurrent-sink->buffer+map_infos[k].size > sink->buffer_size ) {
             goto write_error;
           }
-
           memcpy( pcurrent, map_infos[k].data, map_infos[k].size );
           bytes_written += map_infos[k].size;
           pcurrent += map_infos[k].size;
@@ -341,17 +357,17 @@ gst_memory_sink_render_buffers (GstMemorySink * sink, GstBuffer ** buffers,
     "writing %u buffers (%u memories) at position %" G_GUINT64_FORMAT,
     num_buffers, total_mems, sink->current_pos);
 
-  return gst_writev_buffers(sink, buffers, num_buffers, mem_nums, total_mems, &sink->current_pos);
+  return gst_memory_sink_copy_buffers(sink, buffers, num_buffers, mem_nums, total_mems, &sink->current_pos);
 }
 
 static GstFlowReturn
 gst_memory_sink_render_list (GstBaseSink * bsink, GstBufferList * buffer_list)
 {
   GstMemorySink *sink;
-  guint num_buffers;
 
   GstBuffer **buffers;
   guint8 *mem_nums;
+  guint num_buffers;
   guint total_mems;
 
   guint i;
@@ -401,7 +417,7 @@ gst_memory_sink_render (GstBaseSink * sink, GstBuffer * buffer)
 }
 
 static gboolean
-gst_memory_sink_open_memory (GstMemorySink * sink)
+gst_memory_sink_alloc_memory (GstMemorySink * sink)
 {
   if(sink->location == NULL || sink->location[0] == '\0')
     goto no_location;
@@ -433,7 +449,7 @@ open_failed:
 }
 
 static void
-gst_memory_sink_close_memory (GstMemorySink * sink)
+gst_memory_sink_free_memory (GstMemorySink * sink)
 {
   if( sink->buffer )
   {
@@ -447,32 +463,29 @@ gst_memory_sink_close_memory (GstMemorySink * sink)
 static gboolean
 gst_memory_sink_start (GstBaseSink * basesink)
 {
-  return gst_memory_sink_open_memory( GST_MEMORY_SINK(basesink) );
+  return gst_memory_sink_alloc_memory( GST_MEMORY_SINK(basesink) );
 }
 
 static gboolean
 gst_memory_sink_stop (GstBaseSink * basesink)
 {
-  gst_memory_sink_close_memory( GST_MEMORY_SINK(basesink) );
+  gst_memory_sink_free_memory( GST_MEMORY_SINK(basesink) );
   return TRUE;
 }
 
-static GstMemory* 
+static GstMemory*
 gst_memory_sink_move ( GstMemorySink* sink, gchar* cur_location)
 {
   g_return_val_if_fail(cur_location != NULL, NULL);
   g_return_val_if_fail( g_strcmp0(cur_location, sink->location) == 0 , NULL);
+  GST_DEBUG_OBJECT(sink, "Before move end-of-stream : %s", sink->eos ? "TRUE":"FALSE");
 
-  GstMemory *media = gst_memory_new_wrapped( 
-    GST_MEMORY_FLAG_READONLY|GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS, 
-    sink->buffer,  DEFAULT_BUFFER_SIZE, 0, sink->buffer_size, NULL, NULL);
+  GstMemory *media = gst_memory_new_wrapped(
+    GST_MEMORY_FLAG_READONLY|GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
+    sink->buffer,  DEFAULT_BUFFER_SIZE, 0, sink->current_pos, NULL, NULL);
 
   g_return_val_if_fail(media != NULL, NULL);
-  
-  {//FIXME
-    g_free(sink->location);
-    sink->buffer = NULL;
-    sink->buffer_size = 0;
-  }
+  sink->current_pos = 0;
+
   return media;
 }

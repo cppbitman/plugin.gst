@@ -67,22 +67,23 @@ typedef enum {
  *
  * Opaque #GstFileSink structure.
  */
+//[1] property
 struct _GstFileSink {
   GstBaseSink parent;
 
   /*< private >*/
-  gchar *filename;
+  gchar *filename;  //[1]
   gchar *uri;
   FILE *file;
 
   gboolean seekable;
   guint64 current_pos;
 
-  gint    buffer_mode;
-  guint   buffer_size;
-  gchar  *buffer;
+  gint    buffer_mode;  //[1]
+  guint   buffer_size;  //[1]
+  gchar  *buffer;    //file cache
 
-  gboolean append;
+  gboolean append;  //[1]
 };
 
 struct _GstFileSinkClass {

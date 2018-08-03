@@ -59,7 +59,12 @@ struct _GstMemorySink {
   gchar  *buffer;
   guint   buffer_size;
 
-  guint64 current_pos;
+  guint64 current_pos;//realtime valid size
+  gboolean eos;//receive end-of-stream message
+
+  //FIXME: make "buffer" a property to be set from outside
+  //so that signal "move" is unneeded
+  //gboolean plugin_buffer;
 };
 
 struct _GstMemorySinkClass {

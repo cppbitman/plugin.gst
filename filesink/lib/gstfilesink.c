@@ -726,6 +726,7 @@ gst_file_sink_render (GstBaseSink * sink, GstBuffer * buffer)
 
   if (flow == GST_FLOW_OK &&
       GST_BUFFER_FLAG_IS_SET (buffer, GST_BUFFER_FLAG_SYNC_AFTER)) {
+    //libc cache---fflush---->kernel cache---fsync---->disk
     if (fflush (filesink->file) || fsync (fileno (filesink->file))) {
       GST_ELEMENT_ERROR (filesink, RESOURCE, WRITE,
           (_("Error while writing to file \"%s\"."), filesink->filename),
