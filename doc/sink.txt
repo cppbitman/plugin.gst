@@ -1,0 +1,49 @@
+cushls:  cushlssink: HTTP Live Streaming sink
+cushls:  cushlssink2: HTTP Live Streaming sink
+cusmultifile:  cusmultifilesink: Multi-File Sink
+cusmultifile:  cussplitmuxsink: Split Muxing Bin
+hls:  hlssink2: HTTP Live Streaming sink                                 GstBin
+hls:  hlssink: HTTP Live Streaming sink                                  GstBin
+ximagesink:  ximagesink: Video sink                                      GstBaseSink
+opengl:  glimagesink: GL Sink Bin                                        GstBin
+opengl:  glimagesinkelement: OpenGL video sink                           GstBaseSink
+opengl:  glsinkbin: GL Sink Bin                                          GstBin
+soup:  souphttpclientsink: HTTP client sink                              GstBaseSink
+video4linux2:  v4l2sink: Video (video4linux2) Sink                       GstBaseSink
+rtspclientsink:  rtspclientsink: RTSP RECORD client                      GstBin
+multifile:  multifilesink: Multi-File Sink                               GstBaseSink
+multifile:  splitmuxsink: Split Muxing Bin                               GstBin
+coreelements:  fakesink: Fake Sink                                       GstBaseSink
+coreelements:  fdsink: Filedescriptor Sink                               GstBaseSink
+coreelements:  filesink: File Sink                                       GstBaseSink
+udp:  udpsink: UDP packet sender                                         GstBaseSink
+udp:  multiudpsink: UDP packet sender                                    GstBaseSink
+udp:  dynudpsink: UDP packet sender                                      GstBaseSink
+alsa:  alsasink: Audio sink (ALSA)                                       GstBaseSink
+proxy:  proxysink: Proxy Sink                                            GstElement
+nice:  nicesink: ICE sink                                                GstBaseSink
+xvimagesink:  xvimagesink: Video sink                                    GstBaseSink
+gio:  giosink: GIO sink                                                  GstBaseSink
+gio:  giostreamsink: GIO stream sink                                     GstBaseSink
+pulseaudio:  pulsesink: PulseAudio Audio Sink                            GstBaseSink
+shm:  shmsink: Shared Memory Sink                                        GstBaseSink
+debug:  testsink: Test plugin                                            GstBaseSink
+gdkpixbuf:  gdkpixbufsink: GdkPixbuf sink                                GstBaseSink
+debugutilsbad:  checksumsink: Checksum sink                              GstBaseSink
+debugutilsbad:  fpsdisplaysink: Measure and show framerate on videosink  GstBin
+debugutilsbad:  fakevideosink: Fake Video Sink                           GstBin
+playback:  playsink: Player Sink                                         GstBin
+rtmp:  rtmpsink: RTMP output sink                                        GstBaseSink
+decklink:  decklinkaudiosink: Decklink Audio Sink                        GstBaseSink
+decklink:  decklinkvideosink: Decklink Video Sink                        GstBaseSink
+tcp:  tcpclientsink: TCP client sink                                     GstBaseSink
+tcp:  tcpserversink: TCP server sink                                     GstBaseSink
+tcp:  multifdsink: Multi filedescriptor sink                             GstBaseSink
+tcp:  multisocketsink: Multi socket sink                                 GstBaseSink
+autodetect:  autovideosink: Auto video sink                              GstBin
+autodetect:  autoaudiosink: Auto audio sink                              GstBin
+app:  appsink: AppSink                                                   GstBaseSink
+inter:  interaudiosink: Internal audio sink                              GstBaseSink
+inter:  intersubsink: Internal subtitle sink                             GstBaseSink
+inter:  intervideosink: Internal video sink                              GstBaseSink
+
