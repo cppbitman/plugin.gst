@@ -300,21 +300,22 @@ static GstFlowReturn
 gst_memory_sink_copy_buffers(GstMemorySink * sink, GstBuffer ** buffers,
     guint num_buffers, guint8 * mem_nums, guint total_mems, guint64 * current_pos)
 {
-  GstMapInfo *map_infos;
-  GstFlowReturn flow_ret;
-  GstMemory *mem;
-  guint i, j, k;
-
-  guint64 bytes_written = 0;
   gchar *pcurrent = sink->buffer + *current_pos;
+  
+  GstMemory *mem;
+  GstMapInfo *map_infos;
+
+  GstFlowReturn flow_ret;
+  guint i, j, k;
 
   GST_LOG_OBJECT (sink, "%u buffers, %u memories", num_buffers, total_mems);
 
   map_infos = g_newa (GstMapInfo, total_mems);
-  
   for(i=0, k = 0; i<num_buffers; ++i) {
+
     g_assert( mem_nums[i]== gst_buffer_n_memory(buffers[i]) );
-    for(j=0; j<mem_nums[i]; ++j) {
+    //copy memories of ith GstBuffer
+    for(j=0; j<mem_nums[i]; ++j, ++k ) {
       mem = gst_buffer_peek_memory(buffers[i], j);
       if( gst_memory_map(mem, &map_infos[k], GST_MAP_READ) ) {
         if(map_infos[k].size > 0) {
@@ -322,16 +323,15 @@ gst_memory_sink_copy_buffers(GstMemorySink * sink, GstBuffer ** buffers,
             goto write_error;
           }
           memcpy( pcurrent, map_infos[k].data, map_infos[k].size );
-          bytes_written += map_infos[k].size;
           pcurrent += map_infos[k].size;
         }
       }
-      ++k ;
     }
+
   }
 
   g_assert( k == total_mems );
-  *current_pos += bytes_written;
+  *current_pos += (pcurrent - (sink->buffer + *current_pos) );
 
   flow_ret = GST_FLOW_OK;
   
