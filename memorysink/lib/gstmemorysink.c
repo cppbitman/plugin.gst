@@ -478,14 +478,18 @@ gst_memory_sink_move ( GstMemorySink* sink, gchar* cur_location)
 {
   g_return_val_if_fail(cur_location != NULL, NULL);
   g_return_val_if_fail( g_strcmp0(cur_location, sink->location) == 0 , NULL);
+  g_warn_if_fail(sink->eos);
   GST_DEBUG_OBJECT(sink, "Before move end-of-stream : %s", sink->eos ? "TRUE":"FALSE");
+  
 
   GstMemory *media = gst_memory_new_wrapped(
     GST_MEMORY_FLAG_READONLY|GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
     sink->buffer,  DEFAULT_BUFFER_SIZE, 0, sink->current_pos, NULL, NULL);
 
   g_return_val_if_fail(media != NULL, NULL);
-  sink->current_pos = 0;
 
+  sink->buffer = NULL;
+  sink->current_pos = 0;
+  
   return media;
 }
