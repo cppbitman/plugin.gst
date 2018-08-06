@@ -1,0 +1,1 @@
+gst-launch-1.0 hlssink2 name=sink filesrc location=SampleVideo_360x240_30mb.mp4 ! qtdemux name=demux demux. ! queue ! h264parse ! sink.video demux. ! queue ! aacparse ! sink.audio
