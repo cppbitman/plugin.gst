@@ -489,10 +489,11 @@ gst_hls_sink2_release_pad (GstElement * element, GstPad * pad)
 
   g_return_if_fail (pad == sink->audio_sink || pad == sink->video_sink);
 
-  peer = gst_pad_get_peer (pad);
+  peer = gst_ghost_pad_get_target (GST_GHOST_PAD(pad));
   if (peer) {
-    //????? release ghost-pad "pad"
-    gst_element_release_request_pad (sink->splitmuxsink, pad);
+    GST_DEBUG("splitmuxsink(%p), PAD(%p), PAD_PARENT(%p)", 
+              sink->splitmuxsink, peer, GST_PAD_PARENT(peer));
+    gst_element_release_request_pad (sink->splitmuxsink, peer);
     gst_object_unref (peer);
   }
 
@@ -625,7 +626,7 @@ gst_hls_sink2_get_property (GObject * object, guint prop_id,
 gboolean
 gst_hls_sink2_plugin_init (GstPlugin * plugin)
 {
-  GST_DEBUG_CATEGORY_INIT (gst_hls_sink2_debug, "cushlssink2", 0, "HlsSink2");
+  GST_DEBUG_CATEGORY_INIT (gst_hls_sink2_debug, "cushlssink2", 2, "HlsSink2");
   return gst_element_register (plugin, "cushlssink2", GST_RANK_NONE,
       gst_hls_sink2_get_type ());
 }
