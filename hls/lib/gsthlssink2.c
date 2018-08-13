@@ -352,6 +352,10 @@ gst_hls_sink2_write_playlist (GstHlsSink2 * sink)
     HlsFragmentBuf* buf;
 
     g_signal_emit_by_name (sink->inner_sink, "move", sink->current_location, &media);
+    if(media==NULL) {
+      GST_WARNING("move NULL media");
+      return;
+    }
     buf = hls_fragment_buf_new(sink->current_location, media);
     
     GST_DEBUG_OBJECT(sink, "HlsFragmentBuf %" GST_PTR_FORMAT 

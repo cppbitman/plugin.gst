@@ -37,6 +37,7 @@
 #include "../gst/gst-i18n-lib.h"
 
 #include "gstmemorysink.h"
+#include <string.h>
 
 static GstStaticPadTemplate sinktemplate = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
@@ -82,7 +83,7 @@ static gboolean gst_memory_sink_query (GstBaseSink * bsink, GstQuery * query);
 static GstMemory* gst_memory_sink_move ( GstMemorySink* sink, gchar* cur_location);
 
 #define _do_init \
-  GST_DEBUG_CATEGORY_INIT (gst_memory_sink_debug, "memorysink", 0, "memorysink element");
+  GST_DEBUG_CATEGORY_INIT (gst_memory_sink_debug, "memorysink", 2, "memorysink element");
 
 #define gst_memory_sink_parent_class parent_class
 G_DEFINE_TYPE_WITH_CODE (GstMemorySink, gst_memory_sink, GST_TYPE_BASE_SINK,
@@ -285,9 +286,11 @@ gst_memory_sink_event (GstBaseSink * sink, GstEvent * event)
   GstMemorySink *msink;
   
   msink = GST_MEMORY_SINK (sink);
+  type = GST_EVENT_TYPE (event);
   switch (type) {
     case GST_EVENT_EOS:
       msink->eos = TRUE;
+      GST_DEBUG("End of stream: TRUE");
       break;
     default:
       break;
@@ -353,10 +356,10 @@ static GstFlowReturn
 gst_memory_sink_render_buffers (GstMemorySink * sink, GstBuffer ** buffers,
     guint num_buffers, guint8 * mem_nums, guint total_mems)
 {
-  GST_DEBUG_OBJECT (sink,
+  GST_TRACE_OBJECT (sink,
     "writing %u buffers (%u memories) at position %" G_GUINT64_FORMAT,
     num_buffers, total_mems, sink->current_pos);
-
+  
   return gst_memory_sink_copy_buffers(sink, buffers, num_buffers, mem_nums, total_mems, &sink->current_pos);
 }
 
@@ -428,7 +431,7 @@ gst_memory_sink_alloc_memory (GstMemorySink * sink)
 
   sink->current_pos = 0;
 
-  GST_DEBUG_OBJECT (sink, "opened memory for location %s", sink->location);
+  GST_DEBUG_OBJECT (sink, "Opened memory for location %s", sink->location);
 
   return TRUE;
   /* ERRORS */
@@ -456,8 +459,9 @@ gst_memory_sink_free_memory (GstMemorySink * sink)
     g_free (sink->buffer);
     sink->buffer = NULL;
 
-    GST_DEBUG_OBJECT (sink, "closed memory");
+    GST_DEBUG_OBJECT (sink, "Closed memory");
   }
+  GST_DEBUG_OBJECT (sink, "Closed empty memory");
 }
 
 static gboolean
@@ -479,8 +483,13 @@ gst_memory_sink_move ( GstMemorySink* sink, gchar* cur_location)
   g_return_val_if_fail(cur_location != NULL, NULL);
   g_return_val_if_fail( g_strcmp0(cur_location, sink->location) == 0 , NULL);
   g_warn_if_fail(sink->eos);
-  GST_DEBUG_OBJECT(sink, "Before move end-of-stream : %s", sink->eos ? "TRUE":"FALSE");
+  GST_TRACE_OBJECT(sink, "Before move end-of-stream(%s), move-location(%s), sink-location(%s), buffer(%p)",
+            (sink->eos?"TRUE":"FALSE"), cur_location, sink->location, sink->buffer);
   
+  if(sink->buffer == NULL) {
+    GST_WARNING("move NULL buffer");
+    return NULL;
+  }
 
   GstMemory *media = gst_memory_new_wrapped(
     GST_MEMORY_FLAG_READONLY|GST_MEMORY_FLAG_PHYSICALLY_CONTIGUOUS,
